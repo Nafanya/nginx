@@ -1829,13 +1829,24 @@ ngx_http_file_cache_expire(ngx_http_file_cache_t *cache)
          * we prefer to just move them to the top of the inactive queue
          */
 
-        ngx_queue_remove(q);
-        fcn->expire = ngx_time() + cache->inactive;
-        ngx_queue_insert_head(&cache->sh->queue, &fcn->queue);
+        /*
+         * Some cache files are deleted only after server restart,
+         * the reason is unknown and we wan't to explicitly delete such
+         * files manually, so instead of moving them in the head of the
+         * queue, we remove them entirely.
+         */
+        //ngx_queue_remove(q);
+        //fcn->expire = ngx_time() + cache->inactive;
+        //ngx_queue_insert_head(&cache->sh->queue, &fcn->queue);
 
-        ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, 0,
-                      "ignore long locked inactive cache entry %*s, count:%d",
-                      (size_t) 2 * NGX_HTTP_CACHE_KEY_LEN, key, fcn->count);
+        //        ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, 0,
+        //                      "ignore long locked inactive cache entry %*s, count:%d",
+        //                      (size_t) 2 * NGX_HTTP_CACHE_KEY_LEN, key, fcn->count);
+
+        fcn->count = 0;
+        ngx_http_file_cache_delete(cache, q, name);
+        ngx_log_debug1(NGX_LOG_DEBUG_HTTP, ngx_cycle->log, 0,
+                       "remove long locked inactive cache entry: %V", path->name);
     }
 
     ngx_shmtx_unlock(&cache->shpool->mutex);
