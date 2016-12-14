@@ -1825,28 +1825,67 @@ ngx_http_file_cache_expire(ngx_http_file_cache_t *cache)
 
         /*
          * abnormally exited workers may leave locked cache entries,
-         * and although it may be safe to remove them completely,
-         * we prefer to just move them to the top of the inactive queue
+         * remove such entries and corresponding cache files
          */
+
+        ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, 0,
+                      "attempt to remove long locked inactive cache entry %*s, count:%d, uses:%d, valid_msec:%d, error:%d, exists:%d, updating:%d, deleting:%d, lock_time:%u",
+                       (size_t) 2 * NGX_HTTP_CACHE_KEY_LEN,
+                      key,
+                      fcn->count,
+                      fcn->uses,
+                      fcn->valid_msec,
+                      fcn->error,
+                      fcn->exists,
+                      fcn->updating,
+                      fcn->deleting,
+                      fcn->lock_time);
 
         /*
-         * Some cache files are deleted only after server restart,
-         * the reason is unknown and we wan't to explicitly delete such
-         * files manually, so instead of moving them in the head of the
-         * queue, we remove them entirely.
+         * pred:
+         * fcn->count != 0
+         * fcn->deleting == 0
          */
-        //ngx_queue_remove(q);
-        //fcn->expire = ngx_time() + cache->inactive;
-        //ngx_queue_insert_head(&cache->sh->queue, &fcn->queue);
 
-        //        ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, 0,
-        //                      "ignore long locked inactive cache entry %*s, count:%d",
-        //                      (size_t) 2 * NGX_HTTP_CACHE_KEY_LEN, key, fcn->count);
+        // First, attempt to remove file as it's normal expired cache file
+        if (fcn->exists) {
+            cache->sh->size -= fcn->fs_size;
 
-        fcn->count = 0;
-        ngx_http_file_cache_delete(cache, q, name);
-        ngx_log_debug1(NGX_LOG_DEBUG_HTTP, ngx_cycle->log, 0,
-                       "remove long locked inactive cache entry: %V", path->name);
+            path = cache->path;
+            p = name + path->name.len + 1 + path->len;
+            p = ngx_hex_dump(p, (u_char *) &fcn->node.key,
+                             sizeof(ngx_rbtree_key_t));
+            len = NGX_HTTP_CACHE_KEY_LEN - sizeof(ngx_rbtree_key_t);
+            p = ngx_hex_dump(p, fcn->key, len);
+            *p = '\0';
+
+            fcn->count++;
+            fcn->deleting = 1;
+            ngx_shmtx_unlock(&cache->shpool->mutex);
+
+            len = path->name.len + 1 + path->len + 2 * NGX_HTTP_CACHE_KEY_LEN;
+            ngx_create_hashed_filename(path, name, len);
+
+            if (ngx_delete_file(name) == NGX_FILE_ERROR) {
+                ngx_log_error(NGX_LOG_CRIT, ngx_cycle->log, ngx_errno,
+                              ngx_delete_file_n " \"%s\" failed", name);
+            }
+
+            ngx_shmtx_lock(&cache->shpool->mutex);
+            fcn->count--;
+            fcn->deleting = 0;
+        } else {
+            ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, 0,
+                          "Inconsistency: long locked file is marked as inexistent, but exists in cache");
+        }
+
+        // Since fcn->count is > 0, last if-clause in
+        // ngx_http_file_cache_delete will not be executed, so do it manually.
+        // Remove fcn from queue and tree
+        ngx_queue_remove(q);
+        ngx_rbtree_delete(&cache->sh->rbtree, &fcn->node);
+        ngx_slab_free_locked(cache->shpool, fcn);
+        cache->sh->count--;
     }
 
     ngx_shmtx_unlock(&cache->shpool->mutex);
