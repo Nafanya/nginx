@@ -43,7 +43,7 @@ typedef struct {
     u_char                           key[NGX_HTTP_CACHE_KEY_LEN
                                          - sizeof(ngx_rbtree_key_t)];
 
-    unsigned                         count:20;
+    unsigned                         count:25;
     unsigned                         uses:10;
     unsigned                         valid_msec:10;
     unsigned                         error:10;
