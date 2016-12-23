@@ -20,7 +20,7 @@ CC_TEST_FLAGS="-pipe"
 
 #NGX_CLANG_OPT="-O2"
 #NGX_CLANG_OPT="-Oz"
-NGX_CLANG_OPT="-O"
+NGX_CLANG_OPT="-O0"
 
 case $CPU in
     pentium)
@@ -91,7 +91,7 @@ fi
 CFLAGS="$CFLAGS -Werror"
 
 # debug
-CFLAGS="$CFLAGS -g"
+CFLAGS="$CFLAGS -glldb"
 
 if [ ".$CPP" = "." ]; then
     CPP="$CC -E"
